@@ -1,12 +1,90 @@
-
 name: Build
-on: [push, workflow_dispatch]
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container: gradle:4.10-jdk8
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - run: gradle setupCIWorkspace build --no-daemon
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 8
+
+      - name: src hazirla
+        run: |
+          if [ ! -d src/main/java ]; then
+            Z=$(ls *.zip 2>/dev/null | head -n1)
+            if [ -n "$Z" ]; then unzip -oq "$Z"; fi
+          fi
+          if [ ! -d src/main/java ]; then
+            D=$(find . -type d -path '*/src/main/java' | head -n1)
+            if [ -n "$D" ]; then cp -r "${D%/main/java}" ./src; fi
+          fi
+          test -d src/main/java || { echo "HATA: src/main/java yok"; find . -maxdepth 3 -not -path './.git*'; exit 1; }
+
+      - name: Forge build dosyalarini yaz
+        run: |
+          rm -f build.gradle settings.gradle gradle.properties
+          cat > build.gradle <<'GRADLE_EOF'
+          buildscript {
+              repositories {
+                  mavenCentral()
+                  jcenter()
+                  maven { url = "https://maven.minecraftforge.net" }
+                  maven { url = "https://files.minecraftforge.net/maven" }
+              }
+              dependencies {
+                  classpath 'net.minecraftforge.gradle:ForgeGradle:2.3-SNAPSHOT'
+              }
+          }
+          apply plugin: 'net.minecraftforge.gradle.forge'
+
+          version = "1.0"
+          group = "com.colorverse"
+          archivesBaseName = "colorverse"
+
+          sourceCompatibility = targetCompatibility = '1.8'
+          compileJava {
+              sourceCompatibility = targetCompatibility = '1.8'
+              options.encoding = 'UTF-8'
+          }
+
+          minecraft {
+              version = "1.12.2-14.23.5.2860"
+              runDir = "run"
+              mappings = "stable_39"
+          }
+          GRADLE_EOF
+          echo "rootProject.name = 'colorverse'" > settings.gradle
+          printf 'org.gradle.daemon=false\norg.gradle.jvmargs=-Xmx3G\n' > gradle.properties
+          mkdir -p src/main/resources
+          test -f src/main/resources/pack.mcmeta || echo '{"pack":{"pack_format":3,"description":"ColorVerse"}}' > src/main/resources/pack.mcmeta
+
+      - name: Gradle 4.9 indir
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-4.9-bin.zip
+          unzip -q gradle-4.9-bin.zip
+          echo "$PWD/gradle-4.9/bin" >> "$GITHUB_PATH"
+
+      - name: Derle
+        run: gradle setupCIWorkspace build --no-daemon --stacktrace
+
       - uses: actions/upload-artifact@v4
-        with: { name: mod, path: build/libs/*.jar }
+        with:
+          name: ColorVerse-mod
+          path: build/libs/*.jar
+
+      - name: Releases sayfasina koy
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: ColorVerse build ${{ github.run_number }}
+          files: build/libs/*.jar
