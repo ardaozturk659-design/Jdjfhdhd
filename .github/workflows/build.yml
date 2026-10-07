@@ -73,8 +73,9 @@ jobs:
           unzip -q gradle-4.9-bin.zip
           echo "$PWD/gradle-4.9/bin" >> "$GITHUB_PATH"
 
-      - name: Derle
-        run: gradle setupCIWorkspace build --no-daemon --stacktrace
+      -       - name: Derle
+        run: |
+          gradle setupCIWorkspace build --no-daemon > out.log 2>&1 || { echo "=== HATA OZETI ==="; grep -n -A12 "What went wrong" out.log | head -50; echo "=== SATIRLAR ==="; grep -n "Could not\|Caused by" out.log | head -20; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
